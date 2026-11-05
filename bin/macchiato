@@ -1,0 +1,644 @@
+#!/bin/bash
+#
+# macchiato: keep your Mac awake with a little coffee.
+#
+# A thin wrapper around macOS caffeinate(8). Every argument goes to caffeinate
+# unchanged; while caffeinate runs on an interactive terminal, an animated
+# coffee cup is drawn on standard error.
+#
+# Sections:
+#   1. Version and help
+#   2. Passthrough: when to hand the process over to caffeinate
+#   3. Colors
+#   4. Rasterizer: rounded shapes into quadrant-block pixels
+#   5. Scene: cup, steam, and status copy
+#   6. Terminal control: drawing, cleanup, and signals
+#   7. Main
+#
+# This script must run on the macOS system bash, version 3.2.
+
+version="0.0.0" # x-release-please-version
+
+# --- 1. Version and help -----------------------------------------------------
+
+print_help() {
+  cat <<EOF
+macchiato $version: keep your Mac awake with a little coffee.
+
+Usage: macchiato [caffeinate options] [utility [arguments ...]]
+
+Every argument goes to caffeinate unchanged; see "man caffeinate".
+  -d          prevent the display from sleeping
+  -i          prevent the system from idle sleeping (the default)
+  -m          prevent the disk from idle sleeping
+  -s          prevent the system from sleeping (on AC power only)
+  -u          declare that the user is active
+  -t SECONDS  release the assertions after a timeout
+  -w PID      release the assertions when process PID exits
+
+The animated cup appears only on an interactive terminal, and not when
+caffeinate runs a utility. Environment:
+  MACCHIATO_NO_ANIMATION=1  never draw; run caffeinate directly
+  NO_COLOR=1                show the status text without colors or cup
+  COLORTERM=truecolor       use 24-bit colors instead of 256 colors
+
+"macchiato --version" and "macchiato --help" work only on their own.
+EOF
+}
+
+# --- 2. Passthrough ----------------------------------------------------------
+
+# Succeed when the arguments ask caffeinate to run a utility. Follows the
+# option syntax of caffeinate(8): flags -d -i -m -s -u, and -t and -w take a
+# value, attached or as the next argument. Options end at "--" or at the
+# first argument that is not an option.
+runs_utility() {
+  local options
+  while (($#)); do
+    case $1 in
+      --)
+        (($# > 1))
+        return
+        ;;
+      -?*)
+        options=${1#-}
+        shift
+        while [[ -n $options ]]; do
+          case $options in
+            [tw])
+              shift
+              options=
+              ;;
+            [tw]*)
+              options=
+              ;;
+            *)
+              options=${options#?}
+              ;;
+          esac
+        done
+        ;;
+      *)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+# Succeed when the cup should be drawn: an interactive terminal that can show
+# it, no opt-out, and no utility that needs the terminal for itself.
+wants_animation() {
+  [[ -t 2 ]] || return 1
+  [[ -n ${TERM:-} && $TERM != dumb ]] || return 1
+  [[ -z ${MACCHIATO_NO_ANIMATION:-} ]] || return 1
+  ! runs_utility "$@"
+}
+
+# --- 3. Colors ---------------------------------------------------------------
+
+esc=$'\033'
+
+# Pixel colors: 0 terminal background, 1 cup outline, 2 cup shadow, 3 coffee,
+# 4 crema, 5 bright steam, 6 steam, 7 faint steam. Each has a 24-bit value
+# and the nearest xterm 256-color index.
+palette_rgb=('' '203;154;109' '48;37;29' '70;50;37' '136;102;73' '166;170;175' '112;115;119' '62;65;69')
+palette_256=('' 173 234 237 95 248 243 238)
+# Status copy: title, check mark, status, hint.
+text_rgb=('216;165;113' '71;192;115' '178;183;188' '110;116;122')
+text_256=(179 71 249 243)
+
+# Choose 24-bit, 256, or no colors, and build the escape sequences.
+setup_colors() {
+  local i
+  if [[ -n ${NO_COLOR:-} ]]; then
+    color_mode=none
+  elif [[ ${COLORTERM:-} == truecolor || ${COLORTERM:-} == 24bit ]]; then
+    color_mode=truecolor
+  else
+    color_mode=256
+  fi
+
+  pixel_fg=() pixel_bg=("${esc}[49m") text_color=()
+  for ((i = 1; i < ${#palette_rgb[@]}; i++)); do
+    if [[ $color_mode == truecolor ]]; then
+      pixel_fg[i]="${esc}[38;2;${palette_rgb[i]}m"
+      pixel_bg[i]="${esc}[48;2;${palette_rgb[i]}m"
+    else
+      pixel_fg[i]="${esc}[38;5;${palette_256[i]}m"
+      pixel_bg[i]="${esc}[48;5;${palette_256[i]}m"
+    fi
+  done
+  for ((i = 0; i < ${#text_rgb[@]}; i++)); do
+    case $color_mode in
+      truecolor) text_color[i]="${esc}[38;2;${text_rgb[i]}m" ;;
+      256) text_color[i]="${esc}[38;5;${text_256[i]}m" ;;
+      none) text_color[i]= ;;
+    esac
+  done
+  reset="${esc}[0m"
+  [[ $color_mode == none ]] && reset=
+}
+
+# --- 4. Rasterizer -----------------------------------------------------------
+#
+# The cup is rasterized into quadrant pixels: each terminal cell holds a 2x2
+# grid drawn with one block glyph and a foreground/background color pair.
+# Geometry is measured in units of a quarter pixel column: a pixel is 4 units
+# wide and 9 units tall, which keeps circles round in a typical 1:2.25 cell.
+
+quadrants=(' ' '▗' '▖' '▄' '▝' '▐' '▞' '▟' '▘' '▚' '▌' '▙' '▀' '▜' '▛' '█')
+# When a cell holds three colors, ties keep the outline, then the background.
+priority=(5 6 0 1 4 3 2 1)
+# Approximate brightness, used to fold a third color into the closer one.
+luminance=(22 160 40 56 110 168 115 66)
+
+isqrt() {
+  local n=$1 x y
+  if ((n < 2)); then
+    root=$n
+    return
+  fi
+  x=$n
+  y=$(((x + 1) / 2))
+  while ((y < x)); do
+    x=$y
+    y=$(((x + n / x) / 2))
+  done
+  root=$x
+}
+
+# Horizontal extent of a rounded rectangle at height y, as span_left/right.
+# Arguments: y left top right bottom top-left top-right bottom-left bottom-right
+span() {
+  local y=$1 left=$2 top=$3 right=$4 bottom=$5 radius=0 dy=0
+  ((y < top || y > bottom)) && return 1
+  span_left=$left
+  span_right=$right
+  if ((y < top + $6)); then
+    radius=$6 dy=$((top + $6 - y))
+  elif ((y > bottom - $8)); then
+    radius=$8 dy=$((y - bottom + $8))
+  fi
+  if ((radius > 0)); then
+    isqrt $((radius * radius - dy * dy))
+    span_left=$((left + radius - root))
+  fi
+  radius=0
+  if ((y < top + $7)); then
+    radius=$7 dy=$((top + $7 - y))
+  elif ((y > bottom - $9)); then
+    radius=$9 dy=$((y - bottom + $9))
+  fi
+  if ((radius > 0)); then
+    isqrt $((radius * radius - dy * dy))
+    span_right=$((right - radius + root))
+  fi
+  ((span_right >= span_left))
+}
+
+# Set pixels first..last of the current row ($pixels) to color $1.
+paint() {
+  local first=$2 last=$3 fill
+  ((first < 0)) && first=0
+  ((last >= pixel_width)) && last=$((pixel_width - 1))
+  ((last < first)) && return
+  fill=${blank_pixels:0:last-first+1}
+  pixels=${pixels:0:first}${fill//0/$1}${pixels:last+1}
+}
+
+# Paint the pixels whose centers fall inside a rounded rectangle.
+fill_shape() {
+  local color=$1
+  shift
+  span "$@" || return
+  ((span_right < 2)) && return
+  paint "$color" $(((span_left + 1) / 4)) $(((span_right - 2) / 4))
+}
+
+# Turn two pixel rows into one terminal line, stored in $line.
+compose() {
+  local upper=$1 lower=$2 i a b c d first second first_score second_score
+  local candidate score fg bg glyph current_fg=-1 current_bg=-1 near far
+  line=
+  for ((i = 0; i < pixel_width; i += 2)); do
+    a=${upper:i:1} b=${upper:i+1:1} c=${lower:i:1} d=${lower:i+1:1}
+    if ((a == b && b == c && c == d)); then
+      if ((a != current_bg)); then
+        line+=${pixel_bg[a]}
+        current_bg=$a
+      fi
+      line+=' '
+      continue
+    fi
+    first=-1 second=-1 first_score=-1 second_score=-1
+    for candidate in "$a" "$b" "$c" "$d"; do
+      ((candidate == first || candidate == second)) && continue
+      score=$((((a == candidate) + (b == candidate) + (c == candidate) + (d == candidate)) * 10 + priority[candidate]))
+      if ((score > first_score)); then
+        second=$first second_score=$first_score first=$candidate first_score=$score
+      elif ((score > second_score)); then
+        second=$candidate second_score=$score
+      fi
+    done
+    if ((first == 0)); then
+      fg=$second bg=0
+    else
+      fg=$first bg=$second
+    fi
+    glyph=0
+    for candidate in "$a" "$b" "$c" "$d"; do
+      if ((candidate != fg && candidate != bg)); then
+        # A third color folds into the closer of the two, but drawn pixels
+        # never fold into the terminal background.
+        near=$((luminance[candidate] - luminance[fg]))
+        far=$((luminance[candidate] - luminance[bg]))
+        ((bg == 0 || near * near <= far * far)) && candidate=$fg
+      fi
+      glyph=$((glyph * 2 + (candidate == fg)))
+    done
+    if ((fg != current_fg)); then
+      line+=${pixel_fg[fg]}
+      current_fg=$fg
+    fi
+    if ((bg != current_bg)); then
+      line+=${pixel_bg[bg]}
+      current_bg=$bg
+    fi
+    line+=${quadrants[glyph]}
+  done
+  line+=$reset
+}
+
+# --- 5. Scene ----------------------------------------------------------------
+#
+# Shapes are described in reference coordinates: points on the design mockup,
+# where the drawing spans x 565..946 and y 52..343. They are scaled by $scale
+# thousandths of a unit per point to fit the terminal.
+
+ref_left=565     # saucer's left end
+ref_axis=727     # saucer's center; the copy is centered on it
+ref_right=946    # handle's right edge
+ref_bottom=343   # saucer's bottom
+ref_width=438    # 2 * (ref_right - ref_axis), so the axis can be centered
+steam_top=52     # tallest steam
+steam_bottom=130 # where the steam starts, above the cup
+max_scale=1120   # largest cup, about 40 columns wide
+min_scale=440    # smaller than this, show only the copy
+
+# Steam wisps: x position, sway (signed, in points), phase offset, brightness.
+wisp_x=(662 728 792)
+wisp_sway=(9 4 -9)
+wisp_phase=(0 20 6)
+wisp_tone=(6 5 6)
+intro_frames=14 # the steam rises from the cup during these frames
+cycle_frames=64 # the steam loop repeats, and is cached, after this many
+
+# sine[k] = 1000 * sin(2 * pi * k / 64)
+init_sine() {
+  local quarter=(0 98 195 290 383 471 556 634 707 773 831 882 924 957 981 995 1000) k m
+  sine=()
+  for ((k = 0; k < 64; k++)); do
+    m=$((k % 32))
+    ((m > 16)) && m=$((32 - m))
+    sine[k]=${quarter[m]}
+    ((k >= 32)) && sine[k]=$((-sine[k]))
+  done
+}
+
+# Convert reference points to units.
+ux() { unit=$((($1 - ref_left) * scale / 1000)); }
+uy() { unit=$((($1 - steam_top) * scale / 1000)); }
+pt() { unit=$(($1 * scale / 1000)); }
+
+# Spaces that center text of width $1 on the drawing's axis.
+centered() {
+  local width=$((axis - $1 / 2))
+  printf -v padding '%*s' "$((width > 0 ? width : 0))" ''
+}
+
+# Size the scene to the terminal, rasterize the cup, and fill $screen.
+layout() {
+  local size rows columns text_lines by_width by_height y pixel_y i
+  local cup_left cup_top cup_right cup_bottom cup_radius coffee_left coffee_top
+  local coffee_right coffee_bottom coffee_radius crema_y crema_inset
+  local handle_top handle_right handle_bottom handle_radius saucer_left saucer_right saucer_top
+  local art_rows inner_radius
+  size=$(stty size <&2 2>/dev/null)
+  rows=${size%% *}
+  columns=${size##* }
+  [[ $rows =~ ^[0-9]+$ ]] && ((rows > 0)) || rows=24
+  [[ $columns =~ ^[0-9]+$ ]] && ((columns > 0)) || columns=80
+
+  if ((columns < 40)); then
+    title='Brewing wakefulness'
+    status='Mac staying awake'
+    hint='Ctrl+C to stop'
+  else
+    title='Brewing some wakefulness'
+    status='Your Mac is staying awake'
+    hint='Press Ctrl+C to finish your coffee'
+  fi
+
+  text_lines=6
+  by_width=$(((columns - 2) * 8000 / ref_width))
+  by_height=$(((rows - 1 - text_lines) * 18000 / (ref_bottom - steam_top)))
+  scale=$((by_width < by_height ? by_width : by_height))
+  ((scale > max_scale)) && scale=$max_scale
+  axis=$((columns / 2))
+  if ((scale < min_scale)) || [[ $color_mode == none ]]; then
+    scale=0
+    art_rows=0
+  else
+    ux "$ref_right"
+    pixel_width=$((unit / 4 + 2))
+    ((pixel_width % 2)) && ((pixel_width += 1))
+    uy "$ref_bottom"
+    pixel_height=$((unit / 9 + 1))
+    ((pixel_height % 2)) && ((pixel_height += 1))
+    printf -v blank_pixels '%*s' "$pixel_width" ''
+    blank_pixels=${blank_pixels// /0}
+    art_rows=$((pixel_height / 2))
+    ux "$ref_axis"
+    printf -v art_padding '%*s' "$((axis - unit / 8 > 0 ? axis - unit / 8 : 0))" ''
+
+    # The cup, from the mockup. Outlines are 8 units (2 pixels) wide and
+    # 9 units (1 pixel) tall at every size.
+    ux 579 && cup_left=$unit
+    ux 862 && cup_right=$unit
+    uy 158 && cup_top=$unit
+    uy 320 && cup_bottom=$unit
+    pt 46 && cup_radius=$unit
+    ux 607 && coffee_left=$unit
+    ux 835 && coffee_right=$unit
+    uy 177 && coffee_top=$unit
+    ((coffee_top < cup_top + 18)) && coffee_top=$((cup_top + 18))
+    uy 297 && coffee_bottom=$unit
+    ((coffee_bottom > cup_bottom - 18)) && coffee_bottom=$((cup_bottom - 18))
+    pt 26 && coffee_radius=$unit
+    uy 193 && crema_y=$unit
+    ((crema_y < coffee_top + 9)) && crema_y=$((coffee_top + 9))
+    pt 6 && crema_inset=$unit
+    uy 178 && handle_top=$unit
+    ux 946 && handle_right=$unit
+    uy 271 && handle_bottom=$unit
+    pt 30 && handle_radius=$unit
+    ux 565 && saucer_left=$unit
+    ux 890 && saucer_right=$unit
+    uy 335 && saucer_top=$unit
+    inner_radius=$((cup_radius > 8 ? cup_radius - 8 : 0))
+
+    base_pixels=()
+    for ((y = 0; y < pixel_height; y++)); do
+      pixels=$blank_pixels
+      pixel_y=$((y * 9 + 4))
+      fill_shape 1 "$pixel_y" "$((cup_right - 16))" "$handle_top" "$handle_right" "$handle_bottom" 0 "$handle_radius" 0 "$handle_radius"
+      fill_shape 0 "$pixel_y" "$((cup_right - 16))" "$((handle_top + 9))" "$((handle_right - 8))" "$((handle_bottom - 9))" 0 "$((handle_radius - 8))" 0 "$((handle_radius - 8))"
+      fill_shape 1 "$pixel_y" "$cup_left" "$cup_top" "$cup_right" "$cup_bottom" 0 0 "$cup_radius" "$cup_radius"
+      fill_shape 2 "$pixel_y" "$((cup_left + 8))" "$((cup_top + 9))" "$((cup_right - 8))" "$((cup_bottom - 9))" 0 0 "$inner_radius" "$inner_radius"
+      fill_shape 3 "$pixel_y" "$coffee_left" "$coffee_top" "$coffee_right" "$coffee_bottom" 0 0 "$coffee_radius" "$coffee_radius"
+      fill_shape 4 "$pixel_y" "$((coffee_left + crema_inset))" "$crema_y" "$((coffee_right - crema_inset))" "$((crema_y + 8))" 0 0 0 0
+      fill_shape 1 "$pixel_y" "$saucer_left" "$saucer_top" "$saucer_right" "$((saucer_top + 8))" 4 4 4 4
+      base_pixels[y]=$pixels
+    done
+
+    # Steam occupies the first few lines and is recomposed every frame.
+    uy "$steam_bottom"
+    steam_lines=$((unit / 18 + 1))
+    art_lines=()
+    for ((i = steam_lines; i < art_rows; i++)); do
+      compose "${base_pixels[i * 2]}" "${base_pixels[i * 2 + 1]}"
+      art_lines[i]=$art_padding$line
+    done
+    steam_cache=()
+  fi
+
+  screen=()
+  for ((i = 0; i < art_rows; i++)); do
+    screen[i]=${art_lines[i]}
+  done
+  if ((scale)); then
+    screen[art_rows]=''
+    ((scale >= 800)) && screen[${#screen[@]}]=''
+  fi
+  title_line=${#screen[@]}
+  centered $((${#title} + 3))
+  title_padding=$padding
+  screen[title_line]=''
+  ((scale)) && screen[${#screen[@]}]=''
+  centered $((${#status} + 2))
+  screen[${#screen[@]}]="${padding}${text_color[1]}✓ ${text_color[2]}${status}${reset}"
+  centered ${#hint}
+  screen[${#screen[@]}]="${padding}${text_color[3]}${hint}${reset}"
+}
+
+# Draw the steam for $frame into the first lines of $screen.
+draw_steam() {
+  local cycle_frame=$((frame % cycle_frames)) i y pixel_y wisp center sway top height rise
+  local x tone previous lowest bottom wisp_pixels=() previous_x=(-1 -1 -1)
+  if ((frame >= intro_frames)) && [[ -n ${steam_cache[cycle_frame * steam_lines]} ]]; then
+    for ((i = 0; i < steam_lines; i++)); do
+      screen[i]=${steam_cache[cycle_frame * steam_lines + i]}
+    done
+    return
+  fi
+  uy "$steam_bottom"
+  bottom=$unit
+  for ((y = 0; y < steam_lines * 2; y++)); do
+    pixels=${base_pixels[y]}
+    pixel_y=$((y * 9 + 4))
+    for ((wisp = 0; wisp < 3; wisp++)); do
+      # Tops drift up and down slowly; during the intro the steam rises.
+      uy "$steam_top"
+      top=$unit
+      pt 10
+      top=$((top + unit * (1000 + sine[(frame + wisp * 21) % 64]) / 2000))
+      if ((frame < intro_frames)); then
+        lowest=$((bottom - (bottom - top) * (frame + 1) / intro_frames))
+        ((top < lowest)) && top=$lowest
+      fi
+      ((pixel_y < top || pixel_y > bottom)) && continue
+      height=$(((bottom - pixel_y) * 1000 / (bottom - top + 1)))
+      ux "${wisp_x[wisp]}"
+      center=$unit
+      pt "${wisp_sway[wisp]}"
+      sway=$unit
+      pt 70
+      rise=$((unit > 0 ? unit : 1))
+      x=$((center + sway * (400 + 600 * height / 1000) * sine[((bottom - pixel_y) * 64 / rise - frame * 2 + wisp_phase[wisp] + 6400) % 64] / 1000000))
+      tone=${wisp_tone[wisp]}
+      if ((height > 800)); then
+        tone=7
+      elif ((height > 500)); then
+        tone=$((tone + 1))
+      fi
+      x=$((x / 4))
+      previous=${previous_x[wisp]}
+      if ((previous >= 0 && x > previous + 1)); then
+        paint "$tone" $((previous + 1)) "$x"
+      elif ((previous >= 0 && x < previous - 1)); then
+        paint "$tone" "$x" $((previous - 1))
+      else
+        paint "$tone" "$x" "$x"
+      fi
+      previous_x[wisp]=$x
+    done
+    wisp_pixels[y]=$pixels
+  done
+  for ((i = 0; i < steam_lines; i++)); do
+    compose "${wisp_pixels[i * 2]}" "${wisp_pixels[i * 2 + 1]}"
+    screen[i]=$art_padding$line
+    ((frame >= intro_frames)) && steam_cache[cycle_frame * steam_lines + i]=${screen[i]}
+  done
+}
+
+# Animate the dots after the title.
+draw_title() {
+  local dots='...   '
+  dots=${dots:3-(frame / 4)%4:3}
+  screen[title_line]="${title_padding}${text_color[0]}${title}${dots}${reset}"
+}
+
+# --- 6. Terminal control -----------------------------------------------------
+
+sync_start="${esc}[?2026h"
+sync_end="${esc}[?2026l"
+
+# Rewrite lines first..last of the drawing, leaving the cursor below it.
+emit() {
+  local first=$1 last=$2 i output=
+  if ((drawn)); then
+    output+="${esc}[$((rendered_lines - first))A"
+  fi
+  for ((i = first; i <= last; i++)); do
+    output+=$'\r'"${screen[i]}${esc}[K"$'\n'
+  done
+  if ((drawn && last + 1 < rendered_lines)); then
+    output+="${esc}[$((rendered_lines - last - 1))B"
+  fi
+  frame_output+=$output
+}
+
+# Draw one frame, rewriting only the lines that change.
+render() {
+  frame_output=$sync_start
+  if ((resized)); then
+    resized=0
+    if ((drawn)); then
+      frame_output+="${esc}[${rendered_lines}A"$'\r'"${esc}[J"
+      drawn=0
+    fi
+    layout
+  fi
+  ((scale)) && draw_steam
+  draw_title
+  if ((drawn)); then
+    ((scale)) && emit 0 $((steam_lines - 1))
+    emit "$title_line" "$title_line"
+  else
+    frame_output="${esc}[?25l$frame_output"
+    rendered_lines=${#screen[@]}
+    emit 0 $((rendered_lines - 1))
+    drawn=1
+  fi
+  printf '%s' "$frame_output$sync_end" >&2
+}
+
+# Erase the drawing and restore the cursor and typed-input echo.
+cleanup() {
+  if ((drawn)); then
+    printf '\r\033[%dA\033[J\033[?25h' "$rendered_lines" >&2 2>/dev/null
+    drawn=0
+  fi
+  if [[ -n $saved_tty ]]; then
+    stty "$saved_tty" 2>/dev/null
+  fi
+}
+
+# Keystrokes would echo into the drawing and push it down the screen.
+hide_input() {
+  if [[ -n $saved_tty ]]; then
+    stty -echo 2>/dev/null
+  fi
+}
+
+# Stop caffeinate, clean up, then die from the same signal so callers such as
+# shell loops can tell that macchiato was interrupted.
+interrupt() {
+  if [[ -n $timer_pid ]]; then
+    kill -TERM "$timer_pid" 2>/dev/null
+  fi
+  kill -TERM "$child_pid" 2>/dev/null
+  wait "$child_pid" 2>/dev/null
+  cleanup
+  trap - EXIT "$1"
+  kill -"$1" "$$"
+  exit "$2"
+}
+
+# Ctrl+Z: restore the terminal while stopped and redraw after "fg". Bash 3.2
+# does not stop on a TSTP re-raised from its own trap, so stop with STOP.
+pause_drawing() {
+  cleanup
+  kill -STOP "$$"
+  hide_input
+  resized=1
+}
+
+# --- 7. Main -----------------------------------------------------------------
+
+main() {
+  if (($# == 1)); then
+    case $1 in
+      --version)
+        printf 'macchiato %s\n' "$version"
+        return 0
+        ;;
+      --help)
+        print_help
+        return 0
+        ;;
+    esac
+  fi
+
+  # Without a terminal to draw on, or when a utility shares the terminal, get
+  # out of the way: caffeinate takes over this process, its stdin, and signals.
+  if ! wants_animation "$@"; then
+    exec caffeinate "$@"
+  fi
+
+  caffeinate "$@" <&0 &
+  child_pid=$!
+  drawn=0
+  timer_pid=
+  rendered_lines=0
+  saved_tty=
+  if [[ -t 0 ]]; then
+    saved_tty=$(stty -g 2>/dev/null)
+  fi
+  setup_colors
+  init_sine
+
+  trap cleanup EXIT
+  trap 'interrupt INT 130' INT
+  trap 'interrupt TERM 143' TERM
+  trap 'interrupt HUP 129' HUP
+  trap pause_drawing TSTP
+  trap 'resized=1' WINCH
+  hide_input
+
+  frame=0
+  resized=1
+  while kill -0 "$child_pid" 2>/dev/null; do
+    render
+    ((frame += 1))
+    sleep 0.12 &
+    timer_pid=$!
+    wait "$timer_pid" 2>/dev/null
+    timer_pid=
+  done
+
+  wait "$child_pid"
+}
+
+main "$@"

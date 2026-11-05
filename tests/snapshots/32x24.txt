@@ -1,0 +1,46 @@
+[glyphs]
+           ▐    ▌   ▞
+           ▞    ▌   ▐
+           ▝    ▘   ▝
+       ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▜▌
+       ▐▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▌▐▛▀▀▀▀▙
+       ▐               ▌▐▌
+       ▙               ▟▟▛▀▀▀▀▘
+      ▀▙▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▛
+     ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄
+
+     Brewing wakefulness
+
+       ✓ Mac staying awake
+         Ctrl+C to stop
+[styles]
+...........aaaaabbbbaaaaaaaaaaaa
+...........bbbbbccccbbbbbbbbbbbb
+...........bbbbbccccbbbbbbbbbbbb
+......deeeeeeeeeeeeeeeeeefffffff
+......dghhhhhhhhhhhhhhhgefffffff
+......dgiiiiiiiiiiiiiiigefffffjf
+......dkkkkkkkkkkkkkkkkkefffffff
+......feeeeeeeeeeeeeeeeeffffffff
+.....fffffffffffffffffffffffffff
+
+.....llllllllllllllllllllll
+
+.......mmnnnnnnnnnnnnnnnnn
+.........oooooooooooooo
+[legend]
+a fg=62;65;69 bg=default
+b fg=112;115;119 bg=default
+c fg=166;170;175 bg=default
+d fg=default bg=203;154;109
+e fg=203;154;109 bg=48;37;29
+f fg=203;154;109 bg=default
+g fg=70;50;37 bg=48;37;29
+h fg=136;102;73 bg=70;50;37
+i fg=70;50;37 bg=70;50;37
+j fg=203;154;109 bg=203;154;109
+k fg=48;37;29 bg=70;50;37
+l fg=216;165;113 bg=default
+m fg=71;192;115 bg=default
+n fg=178;183;188 bg=default
+o fg=110;116;122 bg=default
