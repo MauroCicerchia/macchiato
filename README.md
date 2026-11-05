@@ -1,2 +1,33 @@
 # macchiato
-A thin wrapper around caffeinate, with a little extra caffeine.
+
+A thin macOS wrapper around `caffeinate`, with an animated ASCII macchiato cup while it runs.
+
+## Install
+
+Copy the executable into a directory on your `PATH`:
+
+```sh
+mkdir -p ~/.local/bin
+cp bin/macchiato ~/.local/bin/macchiato
+```
+
+Add `~/.local/bin` to your `PATH` if it is not already there.
+
+## Use
+
+```sh
+macchiato -t 3600
+macchiato -i -w 12345
+macchiato
+```
+
+Every argument goes directly to `caffeinate`. The cup animates on an interactive terminal's standard error until `caffeinate` exits. Redirected output stays clean. Press `Ctrl+C` to stop; `macchiato` returns the child's exit status when it finishes normally.
+
+## Develop
+
+Requires macOS, Python 3 for tests, and ShellCheck for linting. No additional runtime dependencies are needed.
+
+```sh
+make test
+make lint
+```

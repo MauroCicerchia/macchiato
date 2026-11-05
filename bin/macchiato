@@ -1,0 +1,58 @@
+#!/bin/bash
+
+caffeinate "$@" &
+child_pid=$!
+drawn=0
+timer_pid=
+
+cleanup() {
+  if (( drawn )); then
+    printf '\033[5A' >&2
+    for (( line = 0; line < 5; line++ )); do
+      printf '\r\033[2K\n' >&2
+    done
+    printf '\033[5A\033[?25h' >&2
+  fi
+}
+
+interrupt() {
+  if [[ -n "$timer_pid" ]]; then
+    kill -TERM "$timer_pid" 2>/dev/null
+  fi
+  kill -TERM "$child_pid" 2>/dev/null
+  wait "$child_pid" 2>/dev/null
+  cleanup
+  drawn=0
+  exit "$1"
+}
+
+trap cleanup EXIT
+trap 'interrupt 130' INT
+trap 'interrupt 143' TERM
+
+if [[ -t 2 ]]; then
+  frame=0
+  while kill -0 "$child_pid" 2>/dev/null; do
+    if (( drawn )); then
+      printf '\033[5A' >&2
+    else
+      printf '\033[?25l' >&2
+      drawn=1
+    fi
+
+    if (( frame % 2 == 0 )); then
+      steam='  (  )'
+    else
+      steam='  )  ('
+    fi
+    printf '\r\033[2K%s\n\r\033[2K   ( )\n\r\033[2K  .----.\n\r\033[2K  (____) )\n\r\033[2K   \____/\n' "$steam" >&2
+    (( frame += 1 ))
+    sleep 0.18 &
+    timer_pid=$!
+    wait "$timer_pid" 2>/dev/null
+    timer_pid=
+  done
+fi
+
+wait "$child_pid"
+exit $?
