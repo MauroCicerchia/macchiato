@@ -1,0 +1,99 @@
+.Dd November 5, 2026
+.Dt MACCHIATO 1
+.Os
+.Sh NAME
+.Nm macchiato
+.Nd keep your Mac awake with an animated coffee cup
+.Sh SYNOPSIS
+.Nm
+.Op Ar caffeinate options
+.Op Ar utility Op Ar argument ...
+.Nm
+.Fl \-version | \-help
+.Sh DESCRIPTION
+.Nm
+is a thin wrapper around
+.Xr caffeinate 8 .
+Every argument is passed to
+.Nm caffeinate
+unchanged, and
+.Nm caffeinate
+alone decides how the Mac stays awake.
+.Pp
+While
+.Nm caffeinate
+runs, an animated coffee cup is drawn on standard error.
+The cup is scaled to fit the terminal and redrawn when the window is resized.
+Typed input is not echoed while the cup is drawn.
+When
+.Nm
+exits, the drawing is erased and the terminal is restored.
+.Pp
+Nothing is drawn, and
+.Nm caffeinate
+replaces the
+.Nm
+process, when any of these hold:
+.Bl -bullet -compact
+.It
+standard error is not a terminal;
+.It
+.Ev TERM
+is unset or
+.Dq dumb ;
+.It
+.Ev MACCHIATO_NO_ANIMATION
+is set;
+.It
+the arguments name a utility for
+.Nm caffeinate
+to run, such as
+.Ql macchiato -i make .
+.El
+.Pp
+.Fl \-version
+and
+.Fl \-help
+are recognized only as the single argument.
+.Sh ENVIRONMENT
+.Bl -tag -width "MACCHIATO_NO_ANIMATION"
+.It Ev MACCHIATO_NO_ANIMATION
+If set to a non-empty value, never draw; run
+.Nm caffeinate
+directly.
+.It Ev NO_COLOR
+If set to a non-empty value, show the status text without colors and without the cup.
+.It Ev COLORTERM
+If
+.Dq truecolor
+or
+.Dq 24bit ,
+draw with 24-bit colors.
+Otherwise the 256-color palette is used.
+.It Ev TERM
+If unset or
+.Dq dumb ,
+nothing is drawn.
+.El
+.Sh EXIT STATUS
+.Nm
+exits with the status of
+.Nm caffeinate .
+When interrupted, terminated, or hung up, it stops
+.Nm caffeinate ,
+restores the terminal, and terminates from the same signal.
+.Sh EXAMPLES
+Stay awake until
+.Ql Ctrl+C :
+.Dl $ macchiato
+.Pp
+Keep the display awake for 30 minutes:
+.Dl $ macchiato -d -t 1800
+.Pp
+Stay awake while a build runs, without the cup:
+.Dl $ macchiato -i make
+.Sh SEE ALSO
+.Xr pmset 1 ,
+.Xr caffeinate 8
+.Sh AUTHORS
+.An Mauro Cicerchia

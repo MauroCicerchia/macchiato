@@ -1,0 +1,70 @@
+[glyphs]
+                                ▗       ▌       ▄▘
+                                ▞       ▚      ▝▖
+                               ▞        ▐       ▝▖
+                               ▌        ▌        ▌
+                               ▝        ▘       ▝
+
+                    ▐▛▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                    ▐▌  ▛▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▜   ▄▄▄▄▄▄▄▄▄▖
+                    ▐▌  ▐▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▟▌            ▀▙
+                    ▐▌  ▐                             ▌
+                    ▐▌  ▐                             ▌
+                    ▐▌  ▐                             ▌            ▗▛
+                    ▐▌  ▐                             ▌   ▄▄▄▄▄▄▄▄▀▀
+                        ▙▜                           ▛  ▛▛
+                     ▝▜▄   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀   ▄▛▘
+                       ▝▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                   ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▖
+
+
+                           Brewing some wakefulness
+
+                           ✓ Your Mac is staying awake
+                       Press Ctrl+C to finish your coffee
+[styles]
+................................aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+................................aaaaaaaabbbbbbbaaaaaaaaaaaaaaaaaaaaaaa
+...............................bbbbbbbbbccccccccabbbbbbbbbbbbbbbbbbbbb
+...............................bbbbbbbbbcccccccccbbbbbbbbbbbbbbbbbbbbb
+...............................bbbbbbbbbccccccccbbbbbbbbbbbbbbbbbbbbbb
+
+....................deeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeefdddddddddddd
+....................deeeghhhhhhhhhhhhhhhhhhhhhhhhhhhhhgiijdddddddddddd
+....................deeehkkkkkkkkkkkkkkkkkkkkkkkkkkkklhhhmnnnnnnnnnddd
+....................deeehooooooooooooooooooooooooooooohhhmnnnnnnnnnnmn
+....................deeehooooooooooooooooooooooooooooohhhmnnnnnnnnnnmn
+....................deeehooooooooooooooooooooooooooooohhhmnnnnnnnnnddd
+....................deeehooooooooooooooooooooooooooooohhhmdddddddddddd
+.....................pqqghooooooooooooooooooooooooooohhhjddddddddddddd
+.....................ddeeeehhhhhhhhhhhhhhhhhhhhhhhhhhhhedddddddddddddd
+.......................ddddddddddddddddddddddddddddddddddddddddddddddd
+...................ddddddddddddddddddddddddddddddddddddddddddddddddddd
+
+
+...........................rrrrrrrrrrrrrrrrrrrrrrrrrrr
+
+...........................ssttttttttttttttttttttttttt
+.......................uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu
+[legend]
+a fg=62;65;69 bg=default
+b fg=112;115;119 bg=default
+c fg=166;170;175 bg=default
+d fg=203;154;109 bg=default
+e fg=203;154;109 bg=48;37;29
+f fg=203;154;109 bg=203;154;109
+g fg=48;37;29 bg=70;50;37
+h fg=70;50;37 bg=48;37;29
+i fg=48;37;29 bg=48;37;29
+j fg=48;37;29 bg=203;154;109
+k fg=136;102;73 bg=70;50;37
+l fg=70;50;37 bg=136;102;73
+m fg=70;50;37 bg=203;154;109
+n fg=70;50;37 bg=default
+o fg=70;50;37 bg=70;50;37
+p fg=default bg=203;154;109
+q fg=default bg=48;37;29
+r fg=216;165;113 bg=default
+s fg=71;192;115 bg=default
+t fg=178;183;188 bg=default
+u fg=110;116;122 bg=default
