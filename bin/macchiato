@@ -1,10 +1,55 @@
 #!/bin/bash
 
-caffeinate "$@" &
+# Succeed when the arguments ask caffeinate to run a utility. Follows the
+# option syntax of caffeinate(8): flags -d -i -m -s -u, and -t and -w take a
+# value, attached or as the next argument. Options end at "--" or at the
+# first argument that is not an option.
+runs_utility() {
+  local options
+  while (( $# )); do
+    case $1 in
+      --)
+        (( $# > 1 ))
+        return
+        ;;
+      -?*)
+        options=${1#-}
+        shift
+        while [[ -n $options ]]; do
+          case $options in
+            [tw])
+              shift
+              options=
+              ;;
+            [tw]*)
+              options=
+              ;;
+            *)
+              options=${options#?}
+              ;;
+          esac
+        done
+        ;;
+      *)
+        return 0
+        ;;
+    esac
+  done
+  return 1
+}
+
+# Without a terminal to draw on, or when a utility shares the terminal, get
+# out of the way: caffeinate takes over this process, its stdin, and signals.
+if [[ ! -t 2 ]] || runs_utility "$@"; then
+  exec caffeinate "$@"
+fi
+
+caffeinate "$@" <&0 &
 child_pid=$!
 drawn=0
 timer_pid=
 rendered_lines=0
+saved_tty=
 
 # The cup is rasterized into quadrant pixels: each terminal cell holds a 2x2
 # grid drawn with one block glyph and a foreground/background color pair.
@@ -387,10 +432,23 @@ render() {
 
 cleanup() {
   if (( drawn )); then
-    printf '\r\033[%dA\033[J\033[?25h' "$rendered_lines" >&2
+    printf '\r\033[%dA\033[J\033[?25h' "$rendered_lines" >&2 2>/dev/null
+    drawn=0
+  fi
+  if [[ -n $saved_tty ]]; then
+    stty "$saved_tty" 2>/dev/null
   fi
 }
 
+# Keystrokes would echo into the drawing and push it down the screen.
+hide_input() {
+  if [[ -n $saved_tty ]]; then
+    stty -echo 2>/dev/null
+  fi
+}
+
+# Stop caffeinate, clean up, then die from the same signal so callers such as
+# shell loops can tell that macchiato was interrupted.
 interrupt() {
   if [[ -n "$timer_pid" ]]; then
     kill -TERM "$timer_pid" 2>/dev/null
@@ -398,27 +456,41 @@ interrupt() {
   kill -TERM "$child_pid" 2>/dev/null
   wait "$child_pid" 2>/dev/null
   cleanup
-  drawn=0
-  exit "$1"
+  trap - EXIT "$1"
+  kill -"$1" "$$"
+  exit "$2"
 }
 
-trap cleanup EXIT
-trap 'interrupt 130' INT
-trap 'interrupt 143' TERM
-
-if [[ -t 2 ]]; then
-  frame=0
+# Ctrl+Z: restore the terminal while stopped and redraw after "fg". Bash 3.2
+# does not stop on a TSTP re-raised from its own trap, so stop with STOP.
+pause_drawing() {
+  cleanup
+  kill -STOP "$$"
+  hide_input
   resized=1
-  trap 'resized=1' WINCH
-  while kill -0 "$child_pid" 2>/dev/null; do
-    render
-    (( frame += 1 ))
-    sleep 0.12 &
-    timer_pid=$!
-    wait "$timer_pid" 2>/dev/null
-    timer_pid=
-  done
+}
+
+if [[ -t 0 ]]; then
+  saved_tty=$(stty -g 2>/dev/null)
 fi
+trap cleanup EXIT
+trap 'interrupt INT 130' INT
+trap 'interrupt TERM 143' TERM
+trap 'interrupt HUP 129' HUP
+trap pause_drawing TSTP
+trap 'resized=1' WINCH
+hide_input
+
+frame=0
+resized=1
+while kill -0 "$child_pid" 2>/dev/null; do
+  render
+  (( frame += 1 ))
+  sleep 0.12 &
+  timer_pid=$!
+  wait "$timer_pid" 2>/dev/null
+  timer_pid=
+done
 
 wait "$child_pid"
 exit $?
