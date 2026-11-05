@@ -18,7 +18,24 @@ The cup should animate for ten seconds. Run `./bin/macchiato` without a timeout 
 
 ## Install
 
-Copy the script into a directory on your `PATH`:
+### Homebrew
+
+Once the first release is published, install macchiato from the [personal tap](https://github.com/MauroCicerchia/homebrew-tap):
+
+```sh
+brew install maurocicerchia/tap/macchiato
+```
+
+Homebrew handles later upgrades and removal:
+
+```sh
+brew upgrade macchiato
+brew uninstall macchiato
+```
+
+### From source
+
+Alternatively, copy the script into a directory on your `PATH`:
 
 ```sh
 mkdir -p "$HOME/.local/bin"
@@ -59,6 +76,10 @@ Tests need Python 3; linting needs [ShellCheck](https://www.shellcheck.net/). CI
 make test
 make lint
 ```
+
+### Releases
+
+Commits on `main` follow [Conventional Commits](https://www.conventionalcommits.org/). [release-please](https://github.com/googleapis/release-please) opens a release pull request from those commits. Merging that pull request adds `version.txt` and `CHANGELOG.md`, creates the version tag and GitHub release, and updates the formula in the Homebrew tap. Maintainers configure the `RELEASE_TOKEN` Actions secret to let release pull requests run CI and update the tap.
 
 ## License
 

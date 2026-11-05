@@ -1,0 +1,35 @@
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # Update the tap in the same run that creates the release.
+      - name: Update Homebrew formula
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        uses: mislav/bump-homebrew-formula-action@v4
+        with:
+          formula-name: macchiato
+          homebrew-tap: MauroCicerchia/homebrew-tap
+          tag-name: ${{ steps.release.outputs.tag_name }}
+          download-url: https://github.com/MauroCicerchia/macchiato/archive/refs/tags/${{ steps.release.outputs.tag_name }}.tar.gz
+          create-pullrequest: false
+          create-branch: false
+        env:
+          COMMITTER_TOKEN: ${{ secrets.RELEASE_TOKEN }}
