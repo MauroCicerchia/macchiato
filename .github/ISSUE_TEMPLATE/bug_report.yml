@@ -1,0 +1,43 @@
+name: Bug report
+description: Something does not work or the cup looks wrong.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you ran, what you expected, and what you saw instead.
+      placeholder: I ran `macchiato -t 60` and …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: macchiato version
+      description: Output of `macchiato --version`.
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      description: Output of `sw_vers -productVersion`.
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal app and font
+      placeholder: iTerm2 3.6, Menlo 13
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Terminal details
+      description: Output of `echo "$TERM $COLORTERM $(stty size)"`.
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: For drawing problems, paste a screenshot.
