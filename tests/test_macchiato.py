@@ -16,6 +16,47 @@ ROOT = Path(__file__).resolve().parents[1]
 COMMAND = ROOT / "bin" / "macchiato"
 
 
+def run_in_terminal(columns, rows, child_seconds, resize_to=None):
+    """Run macchiato on a pseudo-terminal and return everything it drew."""
+    with tempfile.TemporaryDirectory() as directory:
+        fixture = Path(directory)
+        child = fixture / "caffeinate"
+        child.write_text(f"#!/bin/bash\nsleep {child_seconds}\n")
+        child.chmod(0o755)
+        environment = os.environ.copy()
+        environment["PATH"] = f"{fixture}:{environment['PATH']}"
+        master, slave = os.openpty()
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, columns, 0, 0))
+        try:
+            process = subprocess.Popen(
+                [str(COMMAND)],
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=slave,
+            )
+            output = bytearray()
+            started = time.monotonic()
+            while True:
+                if resize_to and time.monotonic() - started > child_seconds / 2:
+                    new_columns, new_rows = resize_to
+                    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", new_rows, new_columns, 0, 0))
+                    process.send_signal(signal.SIGWINCH)
+                    resize_to = None
+                ready, _, _ = select.select([master], [], [], 0.1)
+                if ready:
+                    output.extend(os.read(master, 65536))
+                elif process.poll() is not None:
+                    break
+                if time.monotonic() - started > child_seconds + 3:
+                    raise AssertionError("terminal output did not finish")
+            assert process.wait(timeout=2) == 0
+        finally:
+            os.close(slave)
+            os.close(master)
+        return bytes(output)
+
+
 class MacchiatoTests(unittest.TestCase):
     def test_forwards_arguments_output_and_exit_status(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -87,10 +128,10 @@ class MacchiatoTests(unittest.TestCase):
                     os.close(slave)
                 os.close(master)
 
-            self.assertIn("╭────────────────────╮".encode(), output)
-            self.assertIn("╭    ╮    ╭".encode(), output)
-            self.assertIn("╮    ╭    ╮".encode(), output)
-            self.assertIn("│    │    │".encode(), output)
+            text = output.decode()
+            self.assertTrue(set("▘▝▖▗▀▄▌▐▚▞▙▛▜▟") & set(text), "cup is not drawn with block pixels")
+            self.assertIn(b"\x1b[38;2;203;154;109m", output)
+            self.assertIn(b"\x1b[48;2;70;50;37m", output)
             self.assertIn(b"Brewing some wakefulness", output)
             self.assertIn(b"Your Mac is staying awake", output)
             self.assertIn(b"Press Ctrl+C to finish your coffee", output)
@@ -98,7 +139,7 @@ class MacchiatoTests(unittest.TestCase):
             self.assertIn(b"\x1b[48;2;", output)
             self.assertIn(b"\x1b[?25l", output)
             self.assertIn(b"\x1b[?25h", output)
-            self.assertIn(b"\x1b[2K", output)
+            self.assertTrue(output.endswith(b"\x1b[J\x1b[?25h"), "drawing is not cleared on exit")
 
     def test_interrupt_stops_child_and_restores_terminal(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -130,7 +171,13 @@ class MacchiatoTests(unittest.TestCase):
                         output.extend(os.read(master, 4096))
                 self.assertIn(b"\x1b[?25l", output)
                 os.kill(process.pid, signal.SIGINT)
-                self.assertEqual(process.wait(timeout=2), 130)
+                # Keep draining like a real terminal so a pending frame can finish.
+                deadline = time.monotonic() + 2
+                while process.poll() is None and time.monotonic() < deadline:
+                    ready, _, _ = select.select([master], [], [], 0.1)
+                    if ready:
+                        output.extend(os.read(master, 4096))
+                self.assertEqual(process.wait(timeout=1), 130)
                 deadline = time.monotonic() + 2
                 while b"\x1b[?25h" not in output and time.monotonic() < deadline:
                     ready, _, _ = select.select([master], [], [], 0.1)
@@ -181,9 +228,28 @@ class MacchiatoTests(unittest.TestCase):
                     os.close(slave)
                 os.close(master)
 
-            self.assertIn("╭────────────╮".encode(), output)
-            self.assertIn(b"Mac staying awake", output)
+            text = output.decode()
+            self.assertTrue(set("▘▝▖▗▀▄▌▐▚▞▙▛▜▟") & set(text), "compact cup is missing")
+            self.assertIn("✓ \x1b[38;2;178;183;188mMac staying awake", text)
+            self.assertNotIn("Press Ctrl+C to finish your coffee", text)
             self.assertIn(b"\x1b[?25h", output)
+
+    def test_short_terminal_shows_status_without_cup(self):
+        output = run_in_terminal(columns=80, rows=10, child_seconds=0.4)
+
+        text = output.decode()
+        self.assertFalse(set("▘▝▖▗▀▄▌▐▚▞▙▛▜▟") & set(text), "cup does not fit a short terminal")
+        self.assertIn("Your Mac is staying awake", text)
+        self.assertIn("Press Ctrl+C to finish your coffee", text)
+        self.assertTrue(output.endswith(b"\x1b[J\x1b[?25h"))
+
+    def test_redraws_for_new_terminal_size(self):
+        output = run_in_terminal(columns=80, rows=24, child_seconds=1.2, resize_to=(32, 24))
+
+        before, _, after = output.decode().partition("\x1b[J")
+        self.assertIn("Your Mac is staying awake", before)
+        self.assertIn("Mac staying awake", after)
+        self.assertNotIn("Your Mac is staying awake", after)
 
 
 if __name__ == "__main__":

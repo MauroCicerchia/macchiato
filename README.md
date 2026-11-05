@@ -21,7 +21,7 @@ macchiato -i -w 12345
 macchiato
 ```
 
-Every argument goes directly to `caffeinate`. The cup and steam animate on an interactive terminal's standard error until `caffeinate` exits, with a compact version for narrow windows. Redirected output stays clean. Press `Ctrl+C` to stop; `macchiato` returns the child's exit status when it finishes normally.
+Every argument goes directly to `caffeinate`. A pixel-art cup with rising steam animates on an interactive terminal's standard error until `caffeinate` exits, scaled to fit the window. Redirected output stays clean. Press `Ctrl+C` to stop; `macchiato` returns the child's exit status when it finishes normally.
 
 ## Develop
 
