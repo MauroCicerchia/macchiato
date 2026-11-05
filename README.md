@@ -1,37 +1,65 @@
 # macchiato
 
-A thin macOS wrapper around `caffeinate`, with an animated, coffee-colored terminal cup while it runs.
+Keep your Mac awake with a little coffee. **macchiato** is a macOS command-line wrapper around the system's `caffeinate` utility. It passes your arguments through unchanged and shows an animated cup while `caffeinate` runs in an interactive terminal.
+
+The cup stays out of the way when you run a command through `caffeinate` or redirect standard error.
+
+## Quick start
+
+On macOS, clone the repository and try it without installing anything:
+
+```sh
+git clone https://github.com/MauroCicerchia/macchiato.git
+cd macchiato
+./bin/macchiato -t 10
+```
+
+The cup should animate for ten seconds. Run `./bin/macchiato` without a timeout to keep your Mac awake until you press `Ctrl+C`.
 
 ## Install
 
-Copy the executable into a directory on your `PATH`:
+Copy the script into a directory on your `PATH`:
 
 ```sh
-mkdir -p ~/.local/bin
-cp bin/macchiato ~/.local/bin/macchiato
+mkdir -p "$HOME/.local/bin"
+install -m 755 bin/macchiato "$HOME/.local/bin/macchiato"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Add `~/.local/bin` to your `PATH` if it is not already there.
+The `export` line affects the current shell. Add it to your shell startup file (for example, `~/.zshrc`) to use `macchiato` in future terminals.
 
-## Use
+macchiato requires macOS and its built-in `caffeinate` and `/bin/bash`. The animation looks best in a terminal with ANSI true-color support. There are no third-party runtime dependencies.
+
+## Usage
 
 ```sh
-macchiato -t 3600
-macchiato -i -w 12345
-macchiato
+macchiato                 # Stay awake until Ctrl+C
+macchiato -t 3600         # Stay awake for one hour
+macchiato -d -t 1800      # Keep the display awake for 30 minutes
+macchiato -w 12345        # Stay awake until process 12345 exits
+macchiato -i make         # Keep awake while make runs
 ```
 
-Every argument goes directly to `caffeinate`. A pixel-art cup with rising steam animates on an interactive terminal's standard error until `caffeinate` exits, scaled to fit the window. Typed keys are not echoed while the cup is drawn, and `Ctrl+Z` clears the drawing until you resume with `fg`. Press `Ctrl+C` to stop.
+All options belong to `caffeinate`; macchiato adds none. Run `man caffeinate` for the full list of flags and their behavior.
 
-`macchiato` returns the child's exit status when it finishes normally. When interrupted or hung up, it stops `caffeinate`, restores the terminal, and exits from the same signal, so shell loops and scripts stop as they would with `caffeinate`.
+### Terminal behavior
 
-When standard error is redirected, or when `caffeinate` runs a utility (`macchiato -i make`), nothing is drawn: `macchiato` hands the process over to `caffeinate`, so the utility keeps the terminal, its input, and its signals.
+- With no utility command and an interactive standard error, macchiato draws the cup, resizing it to fit the terminal. It hides typed input while drawing and restores the terminal when it finishes.
+- `Ctrl+C` stops `caffeinate` and the wrapper. `Ctrl+Z` clears the drawing and suspends it; `fg` resumes the animation.
+- When a utility is supplied (such as `make`) or standard error is redirected, macchiato runs `caffeinate` directly without animation. The utility keeps its input, output, and signals.
+- When `caffeinate` exits normally, macchiato returns its exit status. On interruption or hangup, it stops `caffeinate`, restores the terminal, and terminates from the same signal.
 
-## Develop
+## Development and contributions
 
-Requires macOS, Python 3 for tests, and ShellCheck for linting. No additional runtime dependencies are needed.
+Bug reports and ideas are welcome in [GitHub Issues](https://github.com/MauroCicerchia/macchiato/issues). For a pull request, run the checks below and describe the change. For animation issues, include your macOS version, terminal app, and window size.
+
+Tests need Python 3; linting needs [ShellCheck](https://www.shellcheck.net/). CI runs both checks on macOS.
 
 ```sh
 make test
 make lint
 ```
+
+## License
+
+macchiato is available under the [MIT License](LICENSE).
