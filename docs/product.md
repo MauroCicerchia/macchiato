@@ -14,7 +14,7 @@ Run `caffeinate` directly and inspect the process or wait for it to finish.
 
 ## Value proposition
 
-Keep `caffeinate`'s behavior and arguments while showing a small animated ASCII macchiato cup during execution.
+Keep `caffeinate`'s behavior and arguments while showing a distinctive animated macchiato cup during execution.
 
 ## MVP hypothesis
 

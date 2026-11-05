@@ -4,14 +4,112 @@ caffeinate "$@" &
 child_pid=$!
 drawn=0
 timer_pid=
+rendered_lines=0
+
+reset=$'\033[0m'
+tan=$'\033[38;2;218;169;117m'
+steam_color=$'\033[38;2;151;153;156m'
+coffee=$'\033[48;2;77;51;37m'
+foam=$'\033[48;2;111;76;51m'
+green=$'\033[38;2;71;204;145m'
+muted=$'\033[38;2;125;137;145m'
+
+render() {
+  local columns padding steam_top steam_middle steam_bottom line frame_output
+  columns=$(stty size <&2 2>/dev/null)
+  columns=${columns##* }
+  if [[ ! $columns =~ ^[0-9]+$ ]] || (( columns == 0 )); then
+    columns=80
+  fi
+
+  if (( columns < 45 )); then
+    padding=''
+    if (( frame % 2 == 0 )); then
+      steam_top='    ╭  ╮  ╭'
+      steam_middle='    │  │  │'
+      steam_bottom='    ╰  ╯  ╰'
+    else
+      steam_top='     ╮  ╭  ╮'
+      steam_middle='     │  │  │'
+      steam_bottom='     ╯  ╰  ╯'
+    fi
+    lines=(
+      "${steam_color}${steam_top}"
+      "${steam_color}${steam_middle}"
+      "${steam_color}${steam_bottom}"
+      ''
+      "${tan}  ╭────────────╮"
+      "${tan}  │${coffee}            ${reset}${tan}│╭──╮"
+      "${tan}  │${coffee}  ${foam}────────${coffee}  ${reset}${tan}││  │"
+      "${tan}  │${coffee}            ${reset}${tan}│╰──╯"
+      "${tan}  ╰╮${coffee}          ${reset}${tan}╭╯"
+      "${tan}   ╰──────────╯"
+      "${tan}  ━━━━━━━━━━━━━━"
+      ''
+      "${tan}Brewing wakefulness..."
+      "${green}✓${reset}${muted} Mac staying awake"
+      "${muted}Ctrl+C to stop"
+    )
+  else
+    printf -v padding '%*s' "$(( (columns - 38) / 2 ))" ''
+    case $(( frame % 3 )) in
+      0)
+        steam_top='          ╭    ╮    ╭'
+        steam_middle='          │    │    │'
+        steam_bottom='          ╰    ╯    ╰'
+        ;;
+      1)
+        steam_top='           ╮    ╭    ╮'
+        steam_middle='           │    │    │'
+        steam_bottom='           ╯    ╰    ╯'
+        ;;
+      *)
+        steam_top='          ╭    ╮    ╭'
+        steam_middle='           │    │    │'
+        steam_bottom='           ╰    ╯    ╰'
+        ;;
+    esac
+    lines=(
+      "${steam_color}${steam_top}"
+      "${steam_color}${steam_middle}"
+      "${steam_color}${steam_bottom}"
+      ''
+      "${tan}    ╭────────────────────╮"
+      "${tan}    │${coffee}                    ${reset}${tan}│╭────╮"
+      "${tan}    │${coffee}  ${foam}────────────────${coffee}  ${reset}${tan}││    │"
+      "${tan}    │${coffee}                    ${reset}${tan}││    │"
+      "${tan}    │${coffee}                    ${reset}${tan}│╰────╯"
+      "${tan}    ╰╮${coffee}                  ${reset}${tan}╭╯"
+      "${tan}     ╰──────────────────╯"
+      "${tan}    ━━━━━━━━━━━━━━━━━━━━━━━━"
+      ''
+      "${tan}       Brewing some wakefulness..."
+      "${green}       ✓${reset}${muted} Your Mac is staying awake"
+      "${muted}       Press Ctrl+C to finish your coffee"
+    )
+  fi
+
+  rendered_lines=${#lines[@]}
+  frame_output=
+  for line in "${lines[@]}"; do
+    frame_output+=$'\r\033[2K'"${padding}${line}${reset}"$'\n'
+  done
+
+  if (( drawn )); then
+    printf '\033[%dA%s' "$rendered_lines" "$frame_output" >&2
+  else
+    drawn=1
+    printf '\033[?25l%s' "$frame_output" >&2
+  fi
+}
 
 cleanup() {
   if (( drawn )); then
-    printf '\033[5A' >&2
-    for (( line = 0; line < 5; line++ )); do
+    printf '\033[%dA' "$rendered_lines" >&2
+    for (( line = 0; line < rendered_lines; line++ )); do
       printf '\r\033[2K\n' >&2
     done
-    printf '\033[5A\033[?25h' >&2
+    printf '\033[%dA\033[?25h' "$rendered_lines" >&2
   fi
 }
 
@@ -33,19 +131,7 @@ trap 'interrupt 143' TERM
 if [[ -t 2 ]]; then
   frame=0
   while kill -0 "$child_pid" 2>/dev/null; do
-    if (( drawn )); then
-      printf '\033[5A' >&2
-    else
-      printf '\033[?25l' >&2
-      drawn=1
-    fi
-
-    if (( frame % 2 == 0 )); then
-      steam='  (  )'
-    else
-      steam='  )  ('
-    fi
-    printf '\r\033[2K%s\n\r\033[2K   ( )\n\r\033[2K  .----.\n\r\033[2K  (____) )\n\r\033[2K   \____/\n' "$steam" >&2
+    render
     (( frame += 1 ))
     sleep 0.18 &
     timer_pid=$!

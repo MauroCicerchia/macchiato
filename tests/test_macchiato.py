@@ -1,10 +1,13 @@
+import fcntl
 import json
 import os
 from pathlib import Path
 import select
 import signal
+import struct
 import subprocess
 import tempfile
+import termios
 import time
 import unittest
 
@@ -51,7 +54,7 @@ class MacchiatoTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fixture = Path(directory)
             child = fixture / "caffeinate"
-            child.write_text("#!/bin/bash\nsleep 0.7\n")
+            child.write_text("#!/bin/bash\nsleep 0.9\n")
             child.chmod(0o755)
             environment = os.environ.copy()
             environment["PATH"] = f"{fixture}:{environment['PATH']}"
@@ -84,9 +87,15 @@ class MacchiatoTests(unittest.TestCase):
                     os.close(slave)
                 os.close(master)
 
-            self.assertIn(b"  (  )", output)
-            self.assertIn(b"  )  (", output)
-            self.assertIn(b"  (____)", output)
+            self.assertIn("╭────────────────────╮".encode(), output)
+            self.assertIn("╭    ╮    ╭".encode(), output)
+            self.assertIn("╮    ╭    ╮".encode(), output)
+            self.assertIn("│    │    │".encode(), output)
+            self.assertIn(b"Brewing some wakefulness", output)
+            self.assertIn(b"Your Mac is staying awake", output)
+            self.assertIn(b"Press Ctrl+C to finish your coffee", output)
+            self.assertIn(b"\x1b[38;2;", output)
+            self.assertIn(b"\x1b[48;2;", output)
             self.assertIn(b"\x1b[?25l", output)
             self.assertIn(b"\x1b[?25h", output)
             self.assertIn(b"\x1b[2K", output)
@@ -134,6 +143,47 @@ class MacchiatoTests(unittest.TestCase):
                 if slave >= 0:
                     os.close(slave)
                 os.close(master)
+
+    def test_narrow_terminal_uses_compact_cup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Path(directory)
+            child = fixture / "caffeinate"
+            child.write_text("#!/bin/bash\nsleep 0.4\n")
+            child.chmod(0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = f"{fixture}:{environment['PATH']}"
+            master, slave = os.openpty()
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 32, 0, 0))
+            try:
+                process = subprocess.Popen(
+                    [str(COMMAND)],
+                    env=environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=slave,
+                )
+                os.close(slave)
+                slave = -1
+                output = bytearray()
+                while True:
+                    ready, _, _ = select.select([master], [], [], 2)
+                    self.assertTrue(ready)
+                    try:
+                        chunk = os.read(master, 4096)
+                    except OSError:
+                        break
+                    if not chunk:
+                        break
+                    output.extend(chunk)
+                self.assertEqual(process.wait(timeout=2), 0)
+            finally:
+                if slave >= 0:
+                    os.close(slave)
+                os.close(master)
+
+            self.assertIn("╭────────────╮".encode(), output)
+            self.assertIn(b"Mac staying awake", output)
+            self.assertIn(b"\x1b[?25h", output)
 
 
 if __name__ == "__main__":
