@@ -1,12 +1,50 @@
 """What macchiato draws: layouts, colors, and redraws."""
 
+import os
+import subprocess
 import unittest
 
-from helpers import BLOCK_GLYPHS, TerminalSession, run_in_terminal
+from helpers import BLOCK_GLYPHS, COMMAND, TerminalSession, run_in_terminal
 
 
 def glyphs(output):
     return BLOCK_GLYPHS & set(output.decode())
+
+
+def steam_lines(frames):
+    """The steam macchiato draws for each of `frames`, computed without the cache.
+
+    Runs the script's functions directly, so frames that take minutes to reach
+    in a real run can be drawn at once. Returns (steam per frame, stderr).
+    """
+    script = COMMAND.read_text()
+    self_call = 'main "$@"\n'
+    assert script.endswith(self_call), "bin/macchiato no longer ends by calling main"
+    driver = """
+setup_colors
+init_sine
+layout
+for frame in "$@"; do
+  steam_cache=()
+  draw_steam
+  for ((i = 0; i < steam_lines; i++)); do
+    printf '%s\\n' "${screen[i]}"
+  done
+  printf -- '--\\n'
+done
+"""
+    env = os.environ.copy()
+    env.pop("NO_COLOR", None)
+    env["COLORTERM"] = "truecolor"
+    result = subprocess.run(
+        ["/bin/bash", "-c", script[: -len(self_call)] + driver, "macchiato", *map(str, frames)],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    return result.stdout.split("--\n")[:-1], result.stderr
 
 
 class AnimationTests(unittest.TestCase):
@@ -50,6 +88,20 @@ class AnimationTests(unittest.TestCase):
         self.assertIn("Your Mac is staying awake", before)
         self.assertIn("Mac staying awake", after)
         self.assertNotIn("Your Mac is staying awake", after)
+
+    def test_steam_after_a_long_run_repeats_the_first_cycle(self):
+        # A resize clears the steam cache, so the steam is drawn again for the
+        # current frame. After about seven minutes that frame number made a
+        # sine index negative and every pixel printed "bad array subscript".
+        cycle = list(range(14, 14 + 64))
+        later = [frame + 64 * 200 for frame in cycle]
+
+        steam, errors = steam_lines(cycle + later)
+
+        self.assertEqual(errors, "")
+        self.assertEqual(len(steam), 2 * len(cycle))
+        self.assertTrue(all(glyphs(lines.encode()) for lines in steam), "steam is missing")
+        self.assertEqual(steam[len(cycle) :], steam[: len(cycle)])
 
     def test_no_color_shows_plain_copy_without_cup(self):
         status, output = run_in_terminal(0.4, NO_COLOR="1")
