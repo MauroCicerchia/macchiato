@@ -292,7 +292,7 @@ wisp_sway=(9 4 -9)
 wisp_phase=(0 20 6)
 wisp_tone=(6 5 6)
 intro_frames=14 # the steam rises from the cup during these frames
-cycle_frames=64 # the steam loop repeats, and is cached, after this many
+cycle_frames=64 # the steam loop repeats, and is cached, after this many (a multiple of 64, the sine table)
 
 # sine[k] = 1000 * sin(2 * pi * k / 64)
 init_sine() {
@@ -448,11 +448,14 @@ draw_steam() {
     pixels=${base_pixels[y]}
     pixel_y=$((y * 9 + 4))
     for ((wisp = 0; wisp < 3; wisp++)); do
+      # The sine lookups use $cycle_frame, not $frame: the steam repeats every
+      # cycle, and a growing $frame would make an index negative after a
+      # few minutes, which bash rejects.
       # Tops drift up and down slowly; during the intro the steam rises.
       uy "$steam_top"
       top=$unit
       pt 10
-      top=$((top + unit * (1000 + sine[(frame + wisp * 21) % 64]) / 2000))
+      top=$((top + unit * (1000 + sine[(cycle_frame + wisp * 21) % 64]) / 2000))
       if ((frame < intro_frames)); then
         lowest=$((bottom - (bottom - top) * (frame + 1) / intro_frames))
         ((top < lowest)) && top=$lowest
@@ -465,7 +468,7 @@ draw_steam() {
       sway=$unit
       pt 70
       rise=$((unit > 0 ? unit : 1))
-      x=$((center + sway * (400 + 600 * height / 1000) * sine[((bottom - pixel_y) * 64 / rise - frame * 2 + wisp_phase[wisp] + 6400) % 64] / 1000000))
+      x=$((center + sway * (400 + 600 * height / 1000) * sine[((bottom - pixel_y) * 64 / rise - cycle_frame * 2 + wisp_phase[wisp] + 128) % 64] / 1000000))
       tone=${wisp_tone[wisp]}
       if ((height > 800)); then
         tone=7
