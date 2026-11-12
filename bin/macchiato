@@ -17,7 +17,7 @@
 #
 # This script must run on the macOS system bash, version 3.2.
 
-version="0.1.0" # x-release-please-version
+version="0.1.1" # x-release-please-version
 
 # --- 1. Version and help -----------------------------------------------------
 

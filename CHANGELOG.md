@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/MauroCicerchia/macchiato/compare/v0.1.0...v0.1.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* keep steam sine index in range after long runs ([#5](https://github.com/MauroCicerchia/macchiato/issues/5)) ([93330ae](https://github.com/MauroCicerchia/macchiato/commit/93330ae2921b23d01a5473f1e7d90829f264d580))
+
 ## 0.1.0 (2026-11-05)
 
 
